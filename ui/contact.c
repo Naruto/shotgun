@@ -7,6 +7,7 @@ typedef struct
 {
    Evas_Object *win;
    Evas_Object *list;
+   Eina_List *users;
 
    struct {
         Ecore_Event_Handler *iq;
@@ -75,7 +76,9 @@ _event_iq_cb(void *data, int type __UNUSED__, void *event)
         {
            Eina_List *l;
            Shotgun_User *user;
-           EINA_LIST_FOREACH((Eina_List *)ev->ev, l, user)
+           cl->users = ev->ev;
+           ev->ev = NULL;
+           EINA_LIST_FOREACH(cl->users, l, user)
               _do_something_with_user(cl, user);
            break;
         }
