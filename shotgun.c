@@ -6,6 +6,8 @@
 
 #include "xml.h"
 
+#include "ui/ui.h"
+
 int shotgun_log_dom = -1;
 
 int SHOTGUN_EVENT_MESSAGE = 0;
@@ -231,6 +233,9 @@ main(int argc, char *argv[])
    auth.resource = eina_stringshare_add("SHOTGUN!");
 
    shotgun_gchat_connect(&auth);
+
+   contact_list_new(argc, argv);
+
    ecore_main_loop_begin();
 
    return 0;

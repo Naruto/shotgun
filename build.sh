@@ -2,13 +2,13 @@
 
 CF="-D_GNU_SOURCE=1 -O0 -pipe -Wall -Wextra -g"
 
-DEPS=($(pkg-config --print-requires-private ecore-con))
+DEPS=($(pkg-config --print-requires-private ecore-con elementary))
 echo "DEPENDENCIES: ${DEPS[@]}"
-CFLAGS="$(pkg-config --static --cflags ${DEPS[@]} ecore-con)"
+CFLAGS="$(pkg-config --static --cflags ${DEPS[@]} ecore-con elementary)"
 #CFLAGS+=" -I/usr/include/sasl"
 echo "DEPENDENCY CFLAGS: $CFLAGS"
 
-LIBS="$(pkg-config --static --libs ${DEPS[@]} ecore-con)"
+LIBS="$(pkg-config --static --libs ${DEPS[@]} ecore-con elementary)"
 if (echo "$LIBS" | grep gnutls &> /dev/null) ; then
 	LIBS+=" $(pkg-config --static --libs gnutls)"
 fi
@@ -42,5 +42,8 @@ gcc -c iq.c -o iq.o $CFLAGS $CF || exit 1
 echo "gcc -c presence.c -o presence.o $CFLAGS $CF || exit 1"
 gcc -c presence.c -o presence.o $CFLAGS $CF || exit 1
 
-echo "g++ *.o -o shotgun -L/usr/lib -lc $LIBS" #pugixml.a
-g++ *.o -o shotgun -L/usr/lib -lc $LIBS #pugixml.a
+echo "gcc -c ui/contact.c -o ui/contact.o $CFLAGS $CF || exit 1"
+gcc -c ui/contact.c -o ui/contact.o $CFLAGS $CF || exit 1
+
+echo "g++ *.o ui/*.o -o shotgun -L/usr/lib -lc $LIBS" #pugixml.a
+g++ *.o ui/*.o -o shotgun -L/usr/lib -lc $LIBS #pugixml.a
