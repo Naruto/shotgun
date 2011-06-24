@@ -172,7 +172,7 @@ _event_presence_cb(void *data, int type __UNUSED__, void *event)
 
    jid = strdup(ev->jid);
    p = strchr(jid, '/');
-   *p = NULL;
+   *p = 0;
    c = eina_hash_find(cl->users, jid);
    if (!c) return EINA_TRUE;
    free(jid);
