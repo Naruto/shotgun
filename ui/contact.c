@@ -13,15 +13,20 @@ typedef struct
    struct {
         Ecore_Event_Handler *iq;
         Ecore_Event_Handler *presence;
+        Ecore_Event_Handler *message;
    } event_handlers;
 } Contact_List;
 
 typedef struct
 {
    Shotgun_User base;
+   const char *full_jid;
    Shotgun_User_Status status;
    char *description;
    Elm_Genlist_Item *list_item;
+   Evas_Object *chat_window;
+   Evas_Object *chat_buffer;
+   Evas_Object *status_line;
 } Contact;
 
 static void
@@ -32,6 +37,8 @@ _contact_free(Contact *c)
    free(c->description);
    if (c->list_item)
      elm_genlist_item_del(c->list_item);
+   if (c->chat_window)
+     evas_object_del(c->chat_window);
    free(c);
 }
 
@@ -129,11 +136,142 @@ _do_something_with_user(Contact_List *cl, Shotgun_User *user)
    c->base.jid = user->jid;
    c->base.name = user->name;
    c->base.subscription = user->subscription;
+   c->base.account = user->account;
    if (c->base.subscription > SHOTGUN_USER_SUBSCRIPTION_NONE)
      c->list_item = elm_genlist_item_append(cl->list, &it, c, NULL,
                                             ELM_GENLIST_ITEM_NONE, NULL, NULL);
 
    eina_hash_direct_add(cl->users, c->base.jid, c);
+}
+
+static void
+_chat_message_insert(Contact *c, const char *from, const char *msg)
+{
+   int len;
+   char timebuf[11];
+   char *buf, *s;
+   Evas_Object *e = c->chat_buffer;
+
+   strftime(timebuf, sizeof(timebuf), "[%H:%M:%S]",
+            localtime((time_t[]){ time(NULL) }));
+
+   s = elm_entry_utf8_to_markup(msg);
+   len = strlen(timebuf) + strlen(from) + strlen(s) + 20;
+   buf = alloca(len);
+   snprintf(buf, len, "%s <b>%s:</b> %s<br>", timebuf, from, s);
+   free(s);
+
+   elm_entry_entry_append(e, buf);
+}
+
+static void
+_chat_window_send_cb(void *data, Evas_Object *obj, void *ev __UNUSED__)
+{
+   Contact *c = data;
+   char *s;
+
+   s = elm_entry_markup_to_utf8(elm_entry_entry_get(obj));
+
+   shotgun_message_send(c->base.account, c->full_jid, s);
+   _chat_message_insert(c, "me", s);
+   elm_entry_entry_set(obj, "");
+
+   free(s);
+}
+
+static void
+_chat_window_free_cb(void *data, Evas *e __UNUSED__, Evas_Object *obj __UNUSED__, void *ev __UNUSED__)
+{
+   Contact *c = data;
+   c->chat_window = NULL;
+   c->chat_buffer = NULL;
+   c->status_line = NULL;
+}
+
+static void
+_chat_window_close_cb(void *data, Evas_Object *obj __UNUSED__, void *ev __UNUSED__)
+{
+   evas_object_del((Evas_Object *)data);
+}
+
+static void
+_chat_window_open(Contact *c)
+{
+   Evas_Object *parent_win, *win, *bg, *box, *convo, *entry;
+   Evas_Object *topbox, *frame, *status, *close, *icon;
+
+   parent_win = elm_object_top_widget_get(
+      elm_genlist_item_genlist_get(c->list_item));
+
+   win = elm_win_add(parent_win, "chat-window", ELM_WIN_BASIC);
+   elm_win_autodel_set(win, 1);
+   evas_object_resize(win, 300, 320);
+   evas_object_show(win);
+
+   bg = elm_bg_add(win);
+   evas_object_size_hint_weight_set(bg, EVAS_HINT_EXPAND, EVAS_HINT_EXPAND);
+   elm_win_resize_object_add(win, bg);
+   evas_object_show(bg);
+
+   box = elm_box_add(win);
+   evas_object_size_hint_weight_set(box, EVAS_HINT_EXPAND, EVAS_HINT_EXPAND);
+   elm_win_resize_object_add(win, box);
+   evas_object_show(box);
+
+   frame = elm_frame_add(win);
+   elm_frame_label_set(frame, c->base.name ? : c->base.jid);
+   evas_object_size_hint_weight_set(frame, EVAS_HINT_EXPAND, 0);
+   evas_object_size_hint_align_set(frame, EVAS_HINT_FILL, 0);
+   elm_box_pack_end(box, frame);
+   evas_object_show(frame);
+
+   topbox = elm_box_add(win);
+   elm_box_horizontal_set(topbox, 1);
+   evas_object_size_hint_weight_set(topbox, EVAS_HINT_EXPAND, EVAS_HINT_EXPAND);
+   elm_frame_content_set(frame, topbox);
+   evas_object_show(topbox);
+
+   status = elm_entry_add(win);
+   elm_entry_single_line_set(status, 1);
+   elm_entry_scrollable_set(status, 1);
+   evas_object_size_hint_weight_set(status, EVAS_HINT_EXPAND, 0);
+   evas_object_size_hint_align_set(status, EVAS_HINT_FILL, 0);
+   elm_box_pack_end(topbox, status);
+   evas_object_show(status);
+
+   close = elm_button_add(win);
+   elm_box_pack_end(topbox, close);
+   evas_object_show(close);
+   icon = elm_icon_add(win);
+   elm_icon_standard_set(icon, "close");
+   elm_button_icon_set(close, icon);
+
+   convo = elm_entry_add(win);
+   elm_entry_editable_set(convo, 0);
+   elm_entry_single_line_set(convo, 0);
+   elm_entry_scrollable_set(convo, 1);
+   elm_entry_line_wrap_set(convo, ELM_WRAP_MIXED);
+   evas_object_size_hint_weight_set(convo, EVAS_HINT_EXPAND, EVAS_HINT_EXPAND);
+   evas_object_size_hint_align_set(convo, EVAS_HINT_FILL, EVAS_HINT_FILL);
+   elm_box_pack_end(box, convo);
+   evas_object_show(convo);
+
+   entry = elm_entry_add(win);
+   elm_entry_single_line_set(entry, 1);
+   elm_entry_scrollable_set(entry, 1);
+   evas_object_size_hint_weight_set(entry, EVAS_HINT_EXPAND, 0);
+   evas_object_size_hint_align_set(entry, EVAS_HINT_FILL, 0);
+   elm_box_pack_end(box, entry);
+   evas_object_show(entry);
+
+   evas_object_smart_callback_add(entry, "activated", _chat_window_send_cb, c);
+   evas_object_event_callback_add(win, EVAS_CALLBACK_FREE, _chat_window_free_cb,
+                                  c);
+   evas_object_smart_callback_add(close, "clicked", _chat_window_close_cb, win);
+
+   c->chat_window = win;
+   c->chat_buffer = convo;
+   c->status_line = status;
 }
 
 static Eina_Bool
@@ -174,18 +312,63 @@ _event_presence_cb(void *data, int type __UNUSED__, void *event)
 
    jid = strdup(ev->jid);
    p = strchr(jid, '/');
-   *p = 0;
+   if(p) *p = 0;
    c = eina_hash_find(cl->users, jid);
    if (!c) return EINA_TRUE;
    free(jid);
 
+   eina_stringshare_replace(&c->full_jid, ev->jid);
    c->status = ev->status;
 
    free(c->description);
    c->description = ev->description;
    ev->description = NULL;
 
+   if (c->status_line)
+     elm_entry_entry_set(c->status_line, c->description);
+
    return EINA_TRUE;
+}
+
+static Eina_Bool
+_event_message_cb(void *data, int type __UNUSED__, void *event)
+{
+   Shotgun_Event_Message *msg = event;
+   Contact_List *cl = data;
+   Contact *c;
+   char *jid, *p;
+   const char *from;
+
+   jid = strdup(msg->jid);
+   p = strchr(jid, '/');
+   *p = 0;
+   c = eina_hash_find(cl->users, jid);
+   if (!c) return EINA_TRUE;
+   free(jid);
+
+   if (!c->chat_window)
+     _chat_window_open(c);
+
+   from = c->base.name ? : c->base.jid;
+   _chat_message_insert(c, from, msg->msg);
+
+   return EINA_TRUE;
+}
+
+static void
+_contact_dbl_click_cb(void *data __UNUSED__, Evas_Object *obj __UNUSED__, void *ev)
+{
+   Elm_Genlist_Item *it = ev;
+   Contact *c;
+
+   c = elm_genlist_item_data_get(it);
+   if (c->chat_window)
+     {
+        elm_win_raise(c->chat_window);
+        return;
+     }
+
+   _chat_window_open(c);
 }
 
 static void
@@ -201,6 +384,7 @@ _contact_list_free_cb(void *data, Evas *e __UNUSED__, Evas_Object *obj __UNUSED_
 
    ecore_event_handler_del(cl->event_handlers.iq);
    ecore_event_handler_del(cl->event_handlers.presence);
+   ecore_event_handler_del(cl->event_handlers.message);
 
    eina_hash_free(cl->users);
 
@@ -243,6 +427,8 @@ contact_list_new(int argc, char **argv)
    elm_box_pack_end(box, btn);
    evas_object_show(btn);
 
+   evas_object_smart_callback_add(list, "clicked,double",
+                                  _contact_dbl_click_cb, cldata);
    evas_object_smart_callback_add(btn, "clicked", _close_btn_cb, win);
    evas_object_event_callback_add(win, EVAS_CALLBACK_FREE,
                                   _contact_list_free_cb, cldata);
@@ -256,6 +442,9 @@ contact_list_new(int argc, char **argv)
                                                        _event_iq_cb, cldata);
    cldata->event_handlers.presence =
       ecore_event_handler_add(SHOTGUN_EVENT_PRESENCE, _event_presence_cb,
+                              cldata);
+   cldata->event_handlers.message =
+      ecore_event_handler_add(SHOTGUN_EVENT_MESSAGE, _event_message_cb,
                               cldata);
 
    evas_object_data_set(win, "contact-list", cldata);
