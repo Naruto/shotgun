@@ -7,7 +7,8 @@ typedef struct
 {
    Evas_Object *win;
    Evas_Object *list;
-   Eina_List *users;
+
+   Eina_Hash *users;
 
    struct {
         Ecore_Event_Handler *iq;
@@ -15,12 +16,71 @@ typedef struct
    } event_handlers;
 } Contact_List;
 
-static char *
-_it_label_get(void *data, Evas_Object *obj __UNUSED__, const char *part __UNUSED__)
+typedef struct
 {
-   Shotgun_User *user = data;
-   if (user->name) return strdup(user->name);
-   return strdup(user->jid);
+   Shotgun_User base;
+   Shotgun_User_Status status;
+   char *description;
+   Elm_Genlist_Item *list_item;
+} Contact;
+
+static void
+_contact_free(Contact *c)
+{
+   eina_stringshare_del(c->base.jid);
+   eina_stringshare_del(c->base.name);
+   free(c->description);
+   if (c->list_item)
+     elm_genlist_item_del(c->list_item);
+   free(c);
+}
+
+static char *
+_it_label_get(void *data, Evas_Object *obj __UNUSED__, const char *part)
+{
+   Contact *user = data;
+
+   if (!strcmp(part, "elm.text"))
+     {
+        const char *ret = NULL;
+        if (user->base.name)
+          ret = user->base.name;
+        else
+          ret = user->base.jid;
+        return strdup(ret);
+     }
+   else if (!strcmp(part, "elm.text.sub"))
+     {
+        char *buf;
+        const char *status;
+        int len = 0;
+
+        switch(user->status)
+          {
+           case SHOTGUN_USER_STATUS_AWAY:
+              status = "Away";
+              break;
+           case SHOTGUN_USER_STATUS_CHAT:
+              status = "Chat";
+              break;
+           case SHOTGUN_USER_STATUS_DND:
+              status = "Busy";
+           case SHOTGUN_USER_STATUS_XA:
+              status = "Very Away";
+              break;
+           default:
+              return NULL;
+          }
+
+        if (!user->description)
+          return strdup(status);
+        len = strlen(status) + strlen(user->description) + 2;
+        buf = malloc(len);
+        snprintf(buf, len, "%s: %s", status, user->description);
+        return buf;
+     }
+
+   return NULL;
 }
 
 static Evas_Object *
@@ -36,16 +96,18 @@ _it_state_get(void *data __UNUSED__, Evas_Object *obj __UNUSED__, const char *pa
 }
 
 static void
-_it_del(void *data __UNUSED__, Evas_Object *obj __UNUSED__)
+_it_del(void *data, Evas_Object *obj __UNUSED__)
 {
+   Contact *c = data;
+   c->list_item = NULL;
 }
 
 static void
 _do_something_with_user(Contact_List *cl, Shotgun_User *user)
 {
-   Elm_Genlist_Item *i;
+   Contact *c;
    static Elm_Genlist_Item_Class it = {
-        .item_style = "default",
+        .item_style = "double_label",
         .func = {
              .label_get = _it_label_get,
              .icon_get = _it_icon_get,
@@ -54,13 +116,18 @@ _do_something_with_user(Contact_List *cl, Shotgun_User *user)
         }
    };
 
-   i = elm_genlist_item_append(cl->list, &it, user, NULL, ELM_GENLIST_ITEM_NONE,
-                               NULL, NULL);
-   if (!i)
-     INF("Failed ");
-   else
-     INF("Successfully ");
-   INF("added %s(%s) to list\n", user->name, user->jid);
+   if (eina_hash_find(cl->users, user->jid))
+     return;
+
+   c = calloc(1, sizeof(Contact));
+   c->base.jid = user->jid;
+   c->base.name = user->name;
+   c->base.subscription = user->subscription;
+   if (c->base.subscription > SHOTGUN_USER_SUBSCRIPTION_NONE)
+     c->list_item = elm_genlist_item_append(cl->list, &it, c, NULL,
+                                            ELM_GENLIST_ITEM_NONE, NULL, NULL);
+
+   eina_hash_direct_add(cl->users, c->base.jid, c);
 }
 
 static Eina_Bool
@@ -74,12 +141,15 @@ _event_iq_cb(void *data, int type __UNUSED__, void *event)
      {
       case SHOTGUN_IQ_EVENT_TYPE_ROSTER:
         {
-           Eina_List *l;
            Shotgun_User *user;
-           cl->users = ev->ev;
+           Eina_List *l;
+           l = (Eina_List *)ev->ev;
            ev->ev = NULL;
-           EINA_LIST_FOREACH(cl->users, l, user)
-              _do_something_with_user(cl, user);
+           EINA_LIST_FREE(l, user)
+             {
+                _do_something_with_user(cl, user);
+                free(user);
+             }
            break;
         }
       default:
@@ -92,7 +162,19 @@ static Eina_Bool
 _event_presence_cb(void *data, int type __UNUSED__, void *event)
 {
    Contact_List *cl = data;
+   Contact *c;
    Shotgun_Event_Presence *ev = event;
+
+   c = eina_hash_find(cl->users, ev->jid);
+   if (!c) return EINA_TRUE;
+
+   c->status = ev->status;
+
+   free(c->description);
+   c->description = ev->description;
+   ev->description = NULL;
+
+   printf("\n\n\nUPDATE STATUS: %s %d %s\n\n\n", c->base.jid, c->status, c->description);
 
    return EINA_TRUE;
 }
@@ -110,6 +192,8 @@ _contact_list_free_cb(void *data, Evas *e __UNUSED__, Evas_Object *obj __UNUSED_
 
    ecore_event_handler_del(cl->event_handlers.iq);
    ecore_event_handler_del(cl->event_handlers.presence);
+
+   eina_hash_free(cl->users);
 
    free(cl);
 }
@@ -156,6 +240,9 @@ contact_list_new(int argc, char **argv)
 
    cldata->win = win;
    cldata->list = list;
+
+   cldata->users = eina_hash_string_superfast_new((Eina_Free_Cb)_contact_free);
+
    cldata->event_handlers.iq = ecore_event_handler_add(SHOTGUN_EVENT_IQ,
                                                        _event_iq_cb, cldata);
    cldata->event_handlers.presence =
