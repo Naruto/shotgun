@@ -163,18 +163,21 @@ _event_presence_cb(void *data, int type __UNUSED__, void *event)
 {
    Contact_List *cl = data;
    Contact *c;
+   char *jid, *p;
    Shotgun_Event_Presence *ev = event;
 
-   c = eina_hash_find(cl->users, ev->jid);
+   jid = strdup(ev->jid);
+   p = strchr(jid, '/');
+   *p = NULL;
+   c = eina_hash_find(cl->users, jid);
    if (!c) return EINA_TRUE;
+   free(jid);
 
    c->status = ev->status;
 
    free(c->description);
    c->description = ev->description;
    ev->description = NULL;
-
-   printf("\n\n\nUPDATE STATUS: %s %d %s\n\n\n", c->base.jid, c->status, c->description);
 
    return EINA_TRUE;
 }
