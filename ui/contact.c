@@ -57,6 +57,10 @@ _it_label_get(void *data, Evas_Object *obj __UNUSED__, const char *part)
 
         switch(user->status)
           {
+           
+           case SHOTGUN_USER_STATUS_NORMAL:
+              status = "Normal";
+              break;
            case SHOTGUN_USER_STATUS_AWAY:
               status = "Away";
               break;
