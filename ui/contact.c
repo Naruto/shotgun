@@ -57,7 +57,6 @@ _it_label_get(void *data, Evas_Object *obj __UNUSED__, const char *part)
 
         switch(user->status)
           {
-           
            case SHOTGUN_USER_STATUS_NORMAL:
               status = "Normal";
               break;
@@ -72,8 +71,11 @@ _it_label_get(void *data, Evas_Object *obj __UNUSED__, const char *part)
            case SHOTGUN_USER_STATUS_XA:
               status = "Very Away";
               break;
+           case SHOTGUN_USER_STATUS_NONE:
+              status = "Offline?";
+              break;
            default:
-              return NULL;
+              status = "What the fuck aren't we handling?";
           }
 
         if (!user->description)
