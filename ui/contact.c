@@ -161,6 +161,7 @@ _chat_message_insert(Contact *c, const char *from, const char *msg)
    free(s);
 
    elm_entry_entry_append(e, buf);
+   elm_entry_cursor_end_set(e);
 }
 
 static void
