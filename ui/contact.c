@@ -324,6 +324,11 @@ _event_presence_cb(void *data, int type __UNUSED__, void *event)
    if (!c) return EINA_TRUE;
 
    c->status = ev->status;
+   if (!c->status)
+     {
+        _contact_free(c);
+        return EINA_TRUE;
+     }
 
    free(c->description);
    c->description = ev->description;
