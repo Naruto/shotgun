@@ -310,12 +310,11 @@ _event_presence_cb(void *data, int type __UNUSED__, void *event)
    char *jid, *p;
    Shotgun_Event_Presence *ev = event;
 
-   jid = strdup(ev->jid);
-   p = strchr(jid, '/');
-   if(p) *p = 0;
+   p = strchr(ev->jid, '/');
+   if (p) jid = strndupa(ev->jid, p - ev->jid);
+   else jid = (char*)ev->jid;
    c = eina_hash_find(cl->users, jid);
    if (!c) return EINA_TRUE;
-   free(jid);
 
    c->status = ev->status;
 
