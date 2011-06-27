@@ -61,34 +61,42 @@ _it_label_get(void *data, Evas_Object *obj __UNUSED__, const char *part)
      {
         char *buf;
         const char *status;
-        int len = 0;
+        size_t st, len = 0;
 
         switch(user->status)
           {
            case SHOTGUN_USER_STATUS_NORMAL:
               status = "Normal";
+              st = sizeof("Normal");
               break;
            case SHOTGUN_USER_STATUS_AWAY:
               status = "Away";
+              st = sizeof("Away");
               break;
            case SHOTGUN_USER_STATUS_CHAT:
               status = "Chat";
+              st = sizeof("Chat");
               break;
            case SHOTGUN_USER_STATUS_DND:
               status = "Busy";
+              st = sizeof("Busy");
+              break;
            case SHOTGUN_USER_STATUS_XA:
               status = "Very Away";
+              st = sizeof("Very Away");
               break;
            case SHOTGUN_USER_STATUS_NONE:
               status = "Offline?";
+              st = sizeof("Offline?");
               break;
            default:
               status = "What the fuck aren't we handling?";
+              st = sizeof("What the fuck aren't we handling?");
           }
 
         if (!user->description)
           return strdup(status);
-        len = strlen(status) + strlen(user->description) + 2;
+        len = st + strlen(user->description) + 2; /* st includes trailing null */
         buf = malloc(len);
         snprintf(buf, len, "%s: %s", status, user->description);
         return buf;
