@@ -26,6 +26,8 @@ typedef struct
    Evas_Object *chat_window;
    Evas_Object *chat_buffer;
    Evas_Object *status_line;
+
+   Eina_Bool presence : 1;
 } Contact;
 
 static void
@@ -118,15 +120,6 @@ static void
 _do_something_with_user(Contact_List *cl, Shotgun_User *user)
 {
    Contact *c;
-   static Elm_Genlist_Item_Class it = {
-        .item_style = "double_label",
-        .func = {
-             .label_get = _it_label_get,
-             .icon_get = _it_icon_get,
-             .state_get = _it_state_get,
-             .del = _it_del
-        }
-   };
 
    if (eina_hash_find(cl->users, user->jid))
      return;
@@ -136,9 +129,6 @@ _do_something_with_user(Contact_List *cl, Shotgun_User *user)
    c->base.name = user->name;
    c->base.subscription = user->subscription;
    c->base.account = user->account;
-   if (c->base.subscription > SHOTGUN_USER_SUBSCRIPTION_NONE)
-     c->list_item = elm_genlist_item_append(cl->list, &it, c, NULL,
-                                            ELM_GENLIST_ITEM_NONE, NULL, NULL);
 
    eina_hash_direct_add(cl->users, c->base.jid, c);
 }
@@ -309,6 +299,15 @@ _event_presence_cb(void *data, int type __UNUSED__, void *event)
    Contact *c;
    char *jid, *p;
    Shotgun_Event_Presence *ev = event;
+   static Elm_Genlist_Item_Class it = {
+        .item_style = "double_label",
+        .func = {
+             .label_get = _it_label_get,
+             .icon_get = _it_icon_get,
+             .state_get = _it_state_get,
+             .del = _it_del
+        }
+   };
 
    p = strchr(ev->jid, '/');
    if (p) jid = strndupa(ev->jid, p - ev->jid);
@@ -324,8 +323,15 @@ _event_presence_cb(void *data, int type __UNUSED__, void *event)
 
    if (c->status_line)
      elm_entry_entry_set(c->status_line, c->description);
-   elm_genlist_item_update(c->list_item);
-
+   if (c->base.subscription > SHOTGUN_USER_SUBSCRIPTION_NONE)
+     {
+        if (!c->presence)
+          c->list_item = elm_genlist_item_append(cl->list, &it, c, NULL,
+                                                 ELM_GENLIST_ITEM_NONE, NULL, NULL);
+        else
+          elm_genlist_item_update(c->list_item);
+     }
+   c->presence = EINA_TRUE;
    return EINA_TRUE;
 }
 
