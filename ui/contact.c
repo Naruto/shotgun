@@ -324,6 +324,7 @@ _event_presence_cb(void *data, int type __UNUSED__, void *event)
 
    if (c->status_line)
      elm_entry_entry_set(c->status_line, c->description);
+   elm_genlist_item_update(c->list_item);
 
    return EINA_TRUE;
 }
