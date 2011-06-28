@@ -170,7 +170,7 @@ _chat_window_send_cb(void *data, Evas_Object *obj, void *ev __UNUSED__)
 
    s = elm_entry_markup_to_utf8(elm_entry_entry_get(obj));
 
-   shotgun_message_send(c->base.account, c->base.jid, s);
+   shotgun_message_send(c->base.account, c->base.jid, s, 0);
    _chat_message_insert(c, "me", s);
    elm_entry_entry_set(obj, "");
 
