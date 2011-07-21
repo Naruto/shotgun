@@ -310,7 +310,8 @@ _chat_window_open(Contact *c)
    elm_entry_editable_set(convo, 0);
    elm_entry_single_line_set(convo, 0);
    elm_entry_scrollable_set(convo, 1);
-   elm_entry_line_wrap_set(convo, ELM_WRAP_MIXED);
+   elm_entry_line_wrap_set(convo, ELM_WRAP_WORD);
+   //elm_entry_line_wrap_set(convo, ELM_WRAP_MIXED); BROKEN as of 21 JULY
    elm_entry_text_filter_append(convo, _chat_conv_filter, NULL);
    evas_object_smart_callback_add(convo, "anchor,in", (Evas_Smart_Cb)_chat_conv_image, NULL);
    evas_object_size_hint_weight_set(convo, EVAS_HINT_EXPAND, EVAS_HINT_EXPAND);
@@ -324,7 +325,6 @@ _chat_window_open(Contact *c)
    evas_object_size_hint_weight_set(entry, EVAS_HINT_EXPAND, 0);
    evas_object_size_hint_align_set(entry, EVAS_HINT_FILL, 0);
    elm_box_pack_end(box, entry);
-   elm_object_focus(entry);
    evas_object_show(entry);
 
    evas_object_smart_callback_add(entry, "activated", _chat_window_send_cb, c);
