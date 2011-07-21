@@ -1,5 +1,6 @@
 #include <Elementary.h>
 #include "../shotgun_private.h"
+#include <sys/stat.h>
 
 #include "ui.h"
 
@@ -9,6 +10,7 @@ typedef struct
    Evas_Object *list;
 
    Eina_Hash *users;
+   Eina_Hash *user_convs;
 
    struct {
         Ecore_Event_Handler *iq;
@@ -26,6 +28,7 @@ typedef struct
    Evas_Object *chat_window;
    Evas_Object *chat_buffer;
    Evas_Object *status_line;
+   Contact_List *list;
 
    Eina_Bool presence : 1;
 } Contact;
@@ -137,6 +140,7 @@ _do_something_with_user(Contact_List *cl, Shotgun_User *user)
    c->base.name = user->name;
    c->base.subscription = user->subscription;
    c->base.account = user->account;
+   c->list = cl;
 
    eina_hash_direct_add(cl->users, c->base.jid, c);
 }
@@ -144,16 +148,16 @@ _do_something_with_user(Contact_List *cl, Shotgun_User *user)
 static void
 _chat_message_insert(Contact *c, const char *from, const char *msg)
 {
-   int len;
+   size_t len;
    char timebuf[11];
    char *buf, *s;
    Evas_Object *e = c->chat_buffer;
 
-   strftime(timebuf, sizeof(timebuf), "[%H:%M:%S]",
+   len = strftime(timebuf, sizeof(timebuf), "[%H:%M:%S]",
             localtime((time_t[]){ time(NULL) }));
 
    s = elm_entry_utf8_to_markup(msg);
-   len = strlen(timebuf) + strlen(from) + strlen(s) + 20;
+   len += strlen(from) + strlen(s) + 20;
    buf = alloca(len);
    snprintf(buf, len, "%s <b>%s:</b> %s<br>", timebuf, from, s);
    free(s);
@@ -187,9 +191,58 @@ _chat_window_free_cb(void *data, Evas *e __UNUSED__, Evas_Object *obj __UNUSED__
 }
 
 static void
-_chat_window_close_cb(void *data, Evas_Object *obj __UNUSED__, void *ev __UNUSED__)
+_chat_window_close_cb(void *data, Evas_Object *obj __UNUSED__, const char *ev __UNUSED__)
 {
-   evas_object_del((Evas_Object *)data);
+   Contact_List *cl;
+
+   cl = evas_object_data_get(data, "list");
+   eina_hash_del_by_data(cl->user_convs, data);
+   evas_object_del(data);
+}
+
+static void
+_chat_conv_image(void *data __UNUSED__, Evas_Object *obj, Elm_Entry_Anchor_Info *ev)
+{
+   printf("anchor: '%s' (%i, %i)", ev->name, ev->x, ev->y);
+}
+
+static void
+_chat_conv_filter(void *data __UNUSED__, Evas_Object *obj __UNUSED__, char **str)
+{
+   char *http;
+   const char *start, *end;
+   Eina_Strbuf *buf;
+
+   start = *str;
+   http = strstr(start, "http");
+   if (!http) return;
+
+   buf = eina_strbuf_new();
+   while (http)
+     {
+        int d;
+        size_t len;
+        char fmt[64];
+
+        d = http - start;
+        if (d > 0) eina_strbuf_append_length(buf, start, d);
+        end = strchr(http, ' ');
+        if (!end) /* address goes to end of message */
+          {
+             len = strlen(http);
+             snprintf(fmt, sizeof(fmt), "<a href=%%.%is></a><br>", len - 4);
+             eina_strbuf_append_printf(buf, fmt, http);
+             break;
+          }
+        len = end - http;
+        snprintf(fmt, sizeof(fmt), "<a href=%%.%is></a>", len);
+        eina_strbuf_append_printf(buf, fmt, http);
+        start = end;
+        http = strstr(start, "http");
+     }
+   free(*str);
+   *str = eina_strbuf_string_steal(buf);
+   eina_strbuf_free(buf);
 }
 
 static void
@@ -198,11 +251,20 @@ _chat_window_open(Contact *c)
    Evas_Object *parent_win, *win, *bg, *box, *convo, *entry;
    Evas_Object *topbox, *frame, *status, *close, *icon;
 
+   win = eina_hash_find(c->list->user_convs, c->base.jid);
+   if (win)
+     {
+        c->chat_window = win;
+        c->chat_buffer = evas_object_data_get(win, "conv");
+        c->status_line = evas_object_data_get(win, "status");
+        return;
+     }
+
    parent_win = elm_object_top_widget_get(
       elm_genlist_item_genlist_get(c->list_item));
 
    win = elm_win_add(parent_win, "chat-window", ELM_WIN_BASIC);
-   elm_win_autodel_set(win, 1);
+   evas_object_smart_callback_add(win, "delete,request", (Evas_Smart_Cb)_chat_window_close_cb, win);
    evas_object_resize(win, 300, 320);
    evas_object_show(win);
 
@@ -217,7 +279,7 @@ _chat_window_open(Contact *c)
    evas_object_show(box);
 
    frame = elm_frame_add(win);
-   elm_frame_label_set(frame, c->base.name ? : c->base.jid);
+   elm_object_text_set(frame, c->base.name ? : c->base.jid);
    evas_object_size_hint_weight_set(frame, EVAS_HINT_EXPAND, 0);
    evas_object_size_hint_align_set(frame, EVAS_HINT_FILL, 0);
    elm_box_pack_end(box, frame);
@@ -249,6 +311,8 @@ _chat_window_open(Contact *c)
    elm_entry_single_line_set(convo, 0);
    elm_entry_scrollable_set(convo, 1);
    elm_entry_line_wrap_set(convo, ELM_WRAP_MIXED);
+   elm_entry_text_filter_append(convo, _chat_conv_filter, NULL);
+   evas_object_smart_callback_add(convo, "anchor,in", (Evas_Smart_Cb)_chat_conv_image, NULL);
    evas_object_size_hint_weight_set(convo, EVAS_HINT_EXPAND, EVAS_HINT_EXPAND);
    evas_object_size_hint_align_set(convo, EVAS_HINT_FILL, EVAS_HINT_FILL);
    elm_box_pack_end(box, convo);
@@ -260,12 +324,18 @@ _chat_window_open(Contact *c)
    evas_object_size_hint_weight_set(entry, EVAS_HINT_EXPAND, 0);
    evas_object_size_hint_align_set(entry, EVAS_HINT_FILL, 0);
    elm_box_pack_end(box, entry);
+   elm_object_focus(entry);
    evas_object_show(entry);
 
    evas_object_smart_callback_add(entry, "activated", _chat_window_send_cb, c);
    evas_object_event_callback_add(win, EVAS_CALLBACK_FREE, _chat_window_free_cb,
                                   c);
-   evas_object_smart_callback_add(close, "clicked", _chat_window_close_cb, win);
+   evas_object_smart_callback_add(close, "clicked", (Evas_Smart_Cb)_chat_window_close_cb, win);
+
+   eina_hash_add(c->list->user_convs, c->base.jid, win);
+   evas_object_data_set(win, "conv", convo);
+   evas_object_data_set(win, "status", status);
+   evas_object_data_set(win, "list", c->list);
 
    c->chat_window = win;
    c->chat_buffer = convo;
@@ -405,9 +475,24 @@ _contact_list_free_cb(void *data, Evas *e __UNUSED__, Evas_Object *obj __UNUSED_
    ecore_event_handler_del(cl->event_handlers.message);
 
    eina_hash_free(cl->users);
+   eina_hash_free(cl->user_convs);
 
    free(cl);
 }
+
+#if 0
+static void
+_setup_extension(void)
+{
+   struct stat st;
+
+   if (!stat("./shotgun.edj", &st))
+     elm_theme_extension_add(NULL, "./shotgun.edj");
+   else if (!stat("ui/shotgun.edj", &st))
+     elm_theme_extension_add(NULL, "ui/shotgun.edj");
+   else exit(1); /* FIXME: ~/.config/shotgun/etc, /usr/share/shotgun/etc */
+}
+#endif
 
 void
 contact_list_new(int argc, char **argv)
@@ -416,6 +501,7 @@ contact_list_new(int argc, char **argv)
    Contact_List *cldata;
 
    elm_init(argc, argv);
+   //_setup_extension();
 
    elm_policy_set(ELM_POLICY_QUIT, ELM_POLICY_QUIT_LAST_WINDOW_CLOSED);
 
@@ -441,7 +527,7 @@ contact_list_new(int argc, char **argv)
    evas_object_show(list);
 
    btn = elm_button_add(win);
-   elm_button_label_set(btn, "My wm has no close button");
+   elm_object_text_set(btn, "My wm has no close button");
    elm_box_pack_end(box, btn);
    evas_object_show(btn);
 
@@ -455,6 +541,7 @@ contact_list_new(int argc, char **argv)
    cldata->list = list;
 
    cldata->users = eina_hash_string_superfast_new((Eina_Free_Cb)_contact_free);
+   cldata->user_convs = eina_hash_string_superfast_new(NULL);
 
    cldata->event_handlers.iq = ecore_event_handler_add(SHOTGUN_EVENT_IQ,
                                                        _event_iq_cb, cldata);
